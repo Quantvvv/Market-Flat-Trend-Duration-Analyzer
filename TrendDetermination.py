@@ -6,27 +6,27 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- КОНФИГУРАЦИЯ СТРАНИЦЫ ---
-st.set_page_config(layout="wide", page_title="Trend/Flat Time Analyzer")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(layout="wide", page_title="Market Regime Analyzer")
 
-# --- ЗАГРУЗКА ДАННЫХ ---
+# --- DATA LOADING ---
 @st.cache_data(ttl=300)
 def get_binance_data(symbol, timeframe, limit=1000):
-    """Получаем больше данных (1000 свечей) для статистики"""
+    """Fetch historical candle data from Binance"""
     exchange = ccxt.binance()
     try:
-        # Binance отдает максимум 1000 за раз
         bars = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
         df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         df.set_index('timestamp', inplace=True)
         return df
     except Exception as e:
-        st.error(f"Ошибка получения данных: {e}")
+        st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
-def get_market_correlation(base_symbol='BTC/USDT', alts=['ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'ADA/USDT'], timeframe='4h'):
+def get_market_correlation(base_symbol='BTC/USDT', alts=['ETH/USDT', 'SOL/USDT', 'BNB/USDT'], timeframe='4h'):
+    """Calculate how much the market is moving together (Correlation)"""
     exchange = ccxt.binance()
     btc_df = get_binance_data(base_symbol, timeframe, limit=100)
     if btc_df.empty: return 0
@@ -43,8 +43,13 @@ def get_market_correlation(base_symbol='BTC/USDT', alts=['ETH/USDT', 'SOL/USDT',
     if 'BTC' not in corr: return 0
     return corr['BTC'].drop('BTC').mean()
 
-# --- МАТЕМАТИКА (HALF-LIFE) ---
+# --- MATHEMATICS (MEAN REVERSION SPEED) ---
 def calculate_half_life(series):
+    """
+    Calculates the 'Half-Life' of a price series.
+    It shows how fast the price returns to its average.
+    Low value = Price is bouncing in a range. High value = Price is trending.
+    """
     series_lag = series.shift(1)
     series_diff = series - series_lag
     valid = pd.concat([series_lag, series_diff], axis=1).dropna()
@@ -56,21 +61,21 @@ def calculate_half_life(series):
         return -np.log(2) / slope
     except: return np.inf
 
-# --- АНАЛИЗ ИНДИКАТОРОВ ---
+# --- INDICATOR CALCULATIONS ---
 def calculate_indicators(df, ma_len, ma_lookback, adx_len, atr_len, range_lookback):
-    # 1. MA & Slope
+    # 1. Moving Average & its Slope (Angle)
     df['MA'] = ta.sma(df['close'], length=ma_len)
     df['ma_slope_pct'] = (df['MA'] - df['MA'].shift(ma_lookback)) / df['MA'].shift(ma_lookback) * 100
     df['ma_slope_per_bar'] = df['ma_slope_pct'] / ma_lookback
     
-    # 2. ADX
+    # 2. ADX (Trend Strength Indicator)
     adx_df = ta.adx(df['high'], df['low'], df['close'], length=adx_len)
     if adx_df is not None:
         df = pd.concat([df, adx_df], axis=1)
     else:
         df['ADX_14'] = 0
 
-    # 3. Range Ratio
+    # 3. Range Ratio (Size of the range vs Volatility)
     df['HH'] = df['high'].rolling(window=range_lookback).max()
     df['LL'] = df['low'].rolling(window=range_lookback).min()
     df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=atr_len)
@@ -78,32 +83,24 @@ def calculate_indicators(df, ma_len, ma_lookback, adx_len, atr_len, range_lookba
     
     return df
 
-# --- АНАЛИЗ ИСТОРИИ ФЛЭТОВ ---
+# --- HISTORICAL CONSOLIDATION ANALYSIS ---
 def analyze_historical_flats(df, slope_th, adx_th, range_th):
     """
-    Проходит по всей истории и ищет периоды, соответствующие критериям.
-    Возвращает статистику длительности.
+    Scans history to find periods where the market was moving sideways.
+    Returns statistics on how long these periods typically last.
     """
-    # Создаем маску: 1 если флэт, 0 если нет
-    # Для истории используем упрощенную модель (без Half-Life и корреляции, так как они тяжелые/внешние)
-    # Считаем флэтом, если соблюдаются ХОТЯ БЫ Slope и ADX (база)
-    
-    # Чтобы не было слишком строго, можно требовать 2 из 3 условий, но для чистоты возьмем основные
     cond_slope = df['ma_slope_per_bar'].abs() < slope_th
     cond_adx = df['ADX_14'] < adx_th
     cond_range = df['range_ratio'] < range_th
     
-    # Основное условие флэта в прошлом: Наклон ок + (ADX ок ИЛИ Range ок)
-    # Это позволяет находить и тихие флэты, и волатильные боковики
+    # Market is "Flat" if slope is small AND (ADX is low OR the price range is tight)
     df['is_flat_hist'] = cond_slope & (cond_adx | cond_range)
     
-    # Группируем подряд идущие True
+    # Group consecutive "Flat" periods
     df['group'] = (df['is_flat_hist'] != df['is_flat_hist'].shift()).cumsum()
-    
-    # Считаем длительность каждой группы
     flats = df[df['is_flat_hist'] == True].groupby('group').size()
     
-    # Отсеиваем "шум" (флэты короче 5 свечей)
+    # Filter out noise (only periods longer than 5 bars)
     valid_flats = flats[flats >= 5]
     
     if valid_flats.empty:
@@ -118,174 +115,123 @@ def analyze_historical_flats(df, slope_th, adx_th, range_th):
         'is_currently_flat': False
     }
     
-    # Проверяем текущий статус (последняя свеча)
     if df['is_flat_hist'].iloc[-1]:
         stats['is_currently_flat'] = True
-        # Находим группу последней свечи
         last_group_id = df['group'].iloc[-1]
         if last_group_id in flats:
             stats['last_flat_len'] = flats[last_group_id]
             
     return stats, df
 
-# --- ИНТЕРФЕЙС ---
+# --- USER INTERFACE ---
 
-st.title("⏳ Time-Based Trend/Flat Analyzer")
-st.markdown("Поиск точки входа на основе **продолжительности** исторических флэтов.")
+st.title("⏳ Market Regime & Consolidation Analyzer")
+st.markdown("This tool estimates how much time is left before a **breakout** based on historical patterns.")
 
 with st.sidebar:
-    st.header("Настройки")
-    symbol = st.text_input("Пара", "BTC/JPY") # Поставил JPY по дефолту для примера
-    tf = st.selectbox("Таймфрейм", ["4h", "1d", "1h"])
+    st.header("Settings")
+    symbol = st.text_input("Ticker", "BTC/USDT")
+    tf = st.selectbox("Timeframe", ["4h", "1d", "1h"])
     
     st.divider()
-    st.caption("Критерии Флэта (Влияют на поиск в истории!)")
+    st.caption("Flat Identification Criteria")
     
     ma_len = st.number_input("MA Period", 100, 300, 100)
     slope_thresh = st.number_input("Slope Threshold (%)", 0.01, 0.1, 0.05, step=0.01)
-    adx_thresh = st.number_input("ADX Threshold", 15, 60, 45) # Чуть поднял дефолт для волатильных пар
+    adx_thresh = st.number_input("ADX Threshold", 15, 60, 45)
     range_thresh = st.number_input("Range Ratio", 4.0, 15.0, 8.0)
     
     st.divider()
     hl_thresh = st.number_input("Half-Life Threshold", 10, 100, 30)
 
-if st.button("Анализировать Историю и Тренд", type="primary"):
-    with st.spinner('Сканируем 1000 свечей истории...'):
-        # 1. Загрузка
+if st.button("Run Historical Analysis", type="primary"):
+    with st.spinner('Scanning 1000 candles of history...'):
         df = get_binance_data(symbol, tf, limit=1000)
         if df.empty or len(df) < ma_len:
-            st.error("Нет данных или история слишком коротка")
+            st.error("Insufficient data available.")
             st.stop()
             
-        # 2. Расчет индикаторов
         df = calculate_indicators(df, ma_len, 20, 14, 14, 50)
-        
-        # 3. Анализ истории флэтов
         hist_stats, df = analyze_historical_flats(df, slope_thresh, adx_thresh, range_thresh)
         
-        # 4. Текущие метрики (для Score)
         last_bar = df.iloc[-1]
         half_life = calculate_half_life(df['close'].tail(200))
-        btc_corr = get_market_correlation(timeframe=tf) # Тут упростил, не возвращаем таблицу корреляций для скорости
+        btc_corr = get_market_correlation(timeframe=tf)
 
-        # --- БЛОК 1: ВРЕМЕННОЙ АНАЛИЗ (САМОЕ ВАЖНОЕ) ---
-        st.subheader("⏱️ Анализ Длительности (Time Decay)")
+        # --- BLOCK 1: TIME DECAY ANALYSIS ---
+        st.subheader("⏱️ Consolidation Duration (Time Decay)")
         
         if hist_stats:
             c1, c2, c3, c4 = st.columns(4)
             
             with c1:
-                st.metric("Всего флэтов найдено", f"{hist_stats['count']}")
-                
+                st.metric("Total Flats Found", f"{hist_stats['count']}")
             with c2:
                 avg_bars = int(hist_stats['avg_len'])
-                # Перевод в дни/часы
-                if tf == '4h': time_str = f"~{int(avg_bars*4/24)} дн."
-                elif tf == '1h': time_str = f"~{int(avg_bars)} ч."
-                else: time_str = f"~{avg_bars} дн."
-                st.metric("Средняя длина", f"{avg_bars} свеч", delta=time_str, delta_color="off")
-                
+                st.metric("Average Duration", f"{avg_bars} bars")
             with c3:
-                st.metric("Максимальная длина", f"{hist_stats['max_len']} свеч")
-                
+                st.metric("Max Historical Duration", f"{hist_stats['max_len']} bars")
             with c4:
                 curr_len = hist_stats['last_flat_len']
                 if hist_stats['is_currently_flat']:
                     avg = hist_stats['avg_len']
-                    progress = min(curr_len / avg, 1.5) # 1.0 = 100% средней длины
-                    
+                    risk_msg = "🟢 Cycle Start"
                     state_color = "normal"
-                    risk_msg = "🟢 Начало цикла"
-                    
                     if curr_len > avg * 1.3:
-                        state_color = "inverse" # Красный
-                        risk_msg = "🔥 ВЫСОКИЙ РИСК ПРОБОЯ"
+                        state_color = "inverse"
+                        risk_msg = "🔥 HIGH BREAKOUT RISK"
                     elif curr_len > avg * 0.8:
-                        state_color = "off" # Серый/Желтый
-                        risk_msg = "⚠️ Зрелый флэт"
-                        
-                    st.metric("ТЕКУЩИЙ ФЛЭТ", f"{curr_len} свеч", delta=risk_msg, delta_color=state_color)
+                        state_color = "off"
+                        risk_msg = "⚠️ Mature Flat"
+                    st.metric("CURRENT FLAT", f"{curr_len} bars", delta=risk_msg, delta_color=state_color)
                 else:
-                    st.metric("ТЕКУЩИЙ ФЛЭТ", "НЕТ (Тренд)", delta="Ждем условий", delta_color="off")
+                    st.metric("CURRENT FLAT", "NONE (Trending)", delta="Waiting for setup", delta_color="off")
             
-            # Прогресс бар вероятности окончания
+            # Progress bar for "Exhaustion"
             if hist_stats['is_currently_flat']:
                 pct = min(int((curr_len / hist_stats['avg_len']) * 100), 100)
-                st.write(f"Исчерпание потенциала флэта (относительно среднего): **{pct}%**")
+                st.write(f"Consolidation Maturity (vs Historical Average): **{pct}%**")
                 st.progress(pct)
                 if curr_len > hist_stats['avg_len']:
-                    st.warning(f"Внимание: Текущий боковик ({curr_len}) уже длиннее среднего исторического ({int(hist_stats['avg_len'])}). Вероятность импульса высока!")
-        else:
-            st.warning("По текущим критериям в истории не найдено ни одного флэта. Попробуйте смягчить настройки (повысить ADX, Slope).")
-
+                    st.warning(f"Warning: Current flat duration ({curr_len}) exceeds historical average ({int(hist_stats['avg_len'])}). A volatility spike is likely!")
+        
         st.divider()
 
-        # --- БЛОК 2: ТЕКУЩИЙ СКОРИНГ (Как раньше) ---
+        # --- BLOCK 2: REGIME SCORING ---
         score = 0
         reasons = []
         
-        # Slope
-        slope_val = abs(last_bar['ma_slope_per_bar'])
-        if slope_val < slope_thresh: score += 1; reasons.append(f"✅ MA Slope: {slope_val:.4f}%")
-        else: reasons.append(f"❌ MA Slope: {slope_val:.4f}%")
-        
-        # ADX
-        adx_val = last_bar['ADX_14']
-        if adx_val < adx_thresh: score += 1; reasons.append(f"✅ ADX: {adx_val:.1f}")
-        else: reasons.append(f"❌ ADX: {adx_val:.1f}")
-        
-        # Range
-        range_val = last_bar['range_ratio']
-        if range_val < range_thresh: score += 1; reasons.append(f"✅ Range: {range_val:.1f}")
-        else: reasons.append(f"❌ Range: {range_val:.1f}")
-        
-        # Half-Life
-        if half_life < hl_thresh: score += 1; reasons.append(f"✅ Half-Life: {half_life:.1f}")
-        else: reasons.append(f"❌ Half-Life: {half_life:.1f}")
-        
-        # Corr (только для крипты)
-        if btc_corr < 0.6: score += 1; reasons.append(f"✅ Corr: {btc_corr:.2f}")
-        else: reasons.append(f"❌ Corr: {btc_corr:.2f}")
+        if abs(last_bar['ma_slope_per_bar']) < slope_thresh: score += 1; reasons.append("✅ Low Slope")
+        if last_bar['ADX_14'] < adx_thresh: score += 1; reasons.append("✅ Low ADX")
+        if last_bar['range_ratio'] < range_thresh: score += 1; reasons.append("✅ Tight Range")
+        if half_life < hl_thresh: score += 1; reasons.append("✅ Low Half-Life")
+        if btc_corr < 0.6: score += 1; reasons.append("✅ Low Correlation")
 
         c_s1, c_s2 = st.columns([1, 2])
         with c_s1:
-            color = "normal" if score >= 3 else "inverse"
-            state_text = "ФЛЭТ / ГРИД" if score >= 3 else "ТРЕНД / ОЖИДАНИЕ"
-            st.metric("ТЕКУЩИЙ СТАТУС", state_text, f"Score: {score}/5", delta_color=color)
+            state_text = "FLAT / MEAN REVERSION" if score >= 3 else "TREND / IMPULSE"
+            st.metric("CURRENT MARKET REGIME", state_text, f"Score: {score}/5")
         with c_s2:
-            st.caption("Детали:")
+            st.caption("Diagnostic Details:")
             st.text(" | ".join(reasons))
 
-        # --- БЛОК 3: ГРАФИКИ ---
-        
+        # --- BLOCK 3: CHARTS ---
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.03)
-        
-        # Свечи
         fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Price'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['MA'], line=dict(color='orange'), name=f'MA {ma_len}'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA'], line=dict(color='orange'), name='Trend Baseline'), row=1, col=1)
         
-        # Подсветка исторических флэтов (Серые зоны)
-        # Ищем начало и конец каждой группы True
+        # Highlight historical consolidation zones
         df['change'] = df['is_flat_hist'].astype(int).diff()
         starts = df[df['change'] == 1].index
         ends = df[df['change'] == -1].index
-        
-        # Костыль для отрисовки, если флэт идет прямо сейчас (нет конца)
-        if len(starts) > len(ends):
-            ends = ends.append(pd.Index([df.index[-1]]))
+        if len(starts) > len(ends): ends = ends.append(pd.Index([df.index[-1]]))
             
         for s, e in zip(starts, ends):
-            # Рисуем только если длительность была заметной (для чистоты графика)
-            # Тут можно добавить условие длительности, но оставим все найденные
             fig.add_vrect(x0=s, x1=e, fillcolor="green", opacity=0.1, layer="below", line_width=0, row=1, col=1)
 
-        # Индикатор ADX
-        fig.add_trace(go.Scatter(x=df.index, y=df['ADX_14'], line=dict(color='purple'), name='ADX'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['ADX_14'], line=dict(color='purple'), name='ADX (Trend Strength)'), row=2, col=1)
         fig.add_hline(y=adx_thresh, line_dash="dash", line_color="red", row=2, col=1)
         
-        # Индикатор Slope (визуализация флэтовости)
-        # fig.add_trace(go.Scatter(x=df.index, y=df['ma_slope_per_bar'], line=dict(color='yellow'), name='Slope%'), row=2, col=1)
-        
         fig.update_layout(height=700, xaxis_rangeslider_visible=False, template="plotly_dark", 
-                          title="График с подсветкой исторических флэт-зон (Зеленый фон)")
+                          title="Price Chart with Historical Flat Zones Highlighted (Green Areas)")
         st.plotly_chart(fig, use_container_width=True)
