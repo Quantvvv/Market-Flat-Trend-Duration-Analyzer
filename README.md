@@ -48,24 +48,39 @@ Parameters need to be adjusted for each coin; visualization is available for thi
 
 ---
 
+## 🚀 How to Run
 
-🚀 How to Run
-Clone the repository:
-code
-Bash
-git clone https://github.com/YOUR_USERNAME/market-regime-analyzer.git
-Install dependencies:
-code
-Bash
-pip install -r requirements.txt
-Launch the dashboard:
-code
-Bash
-streamlit run TrendDetermination.py
-🛠 Tech Stack
-Language: Python 3.9+
-Data Source: Binance API (via CCXT)
-Calculations: Pandas, Pandas-TA, NumPy
-Visualization: Plotly, Streamlit
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/Market-Flat-Trend-Duration-Analyzer.git
+    cd Market-Flat-Trend-Duration-Analyzer
+    ```
+
+2.  **Install dependencies**:
+    You can install all required libraries using the following command:
+    ```bash
+    pip install streamlit ccxt pandas pandas-ta numpy plotly
+    ```
+
+3.  **Launch the dashboard**:
+    ```bash
+    streamlit run TrendDetermination.py
+    ```
+
+---
+
+## 🛠 Tech Stack
+
+*   **Language**: Python 3.9+
+*   **Data Source**: **Binance API** (connected via **CCXT** for professional exchange connectivity).
+*   **Data Processing**: 
+    *   **Pandas**: For time-series data manipulation and cleaning.
+    *   **Pandas-TA**: For calculating technical indicators (ADX, ATR, SMA).
+    *   **NumPy**: For advanced mathematical calculations (Half-Life, Regression).
+*   **Visualization**: 
+    *   **Plotly**: For high-performance, interactive financial charts.
+    *   **Streamlit**: For building the web-based analytical dashboard.
+
+---
 
 Disclaimer: This tool is for analytical purposes only. Past performance does not guarantee future results. Trading involves significant risk.
