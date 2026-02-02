@@ -30,13 +30,22 @@ Logic: A low Half-Life (e.g., < 25 bars) indicates a "spring-like" behavior wher
 Analyzes the correlation between the target asset and market leaders (e.g., BTC).
 Logic: High correlation (~1.0) usually occurs during massive market-wide impulses (pumps/dumps). Low correlation (< 0.6) suggests "Altseason" behavior or idiosyncratic moves, which are safer for range trading.
 
-⚙️ Parameters need to be adjusted for each coin; visualization is available for this purpose. Adjust the settings until the green zones cover the flat areas. Optimal settings for the BTC/USDT pair:
-Parameter	Stable (4h) BTC
-MA Period	100
-Slope Threshold	0.05%
-ADX Threshold	45
-Range Ratio	8.0
-Half-Life	30
+Parameters need to be adjusted for each coin; visualization is available for this purpose. Adjust the settings until the green zones cover the flat areas. Optimal settings for the BTC/USDT pair:
+---
+
+## ⚙️ Recommended Presets
+
+| Parameter	| Stable (4h) BTC 
+| :--- | :--- |
+| **MA Period** | 100 |
+| **Slope Threshold**| 0.05% |
+| **ADX Threshold** | 45 |
+| **Range Ratio** | 8.0 |
+| **Half-Life** | 30 |
+
+---
+
+
 🚀 How to Run
 Clone the repository:
 code
