@@ -167,6 +167,13 @@ with st.sidebar:
         help="Statistically measures the speed of mean reversion. Lower values indicate a stronger tendency for the price to return to its average."
     )
 
+    st.divider()
+    corr_thresh = st.number_input(
+        "Market Correlation Threshold", 
+        0.0, 1.0, 0.6, 
+        help="0.0 = No correlation, 1.0 = Perfect sync with BTC. Low values suggest 'Alt-season' or independent moves, which are better for range trading."
+    )
+
 
 if st.button("Run Historical Analysis", type="primary"):
     with st.spinner('Scanning 1000 candles of history...'):
@@ -229,7 +236,7 @@ if st.button("Run Historical Analysis", type="primary"):
         if last_bar['ADX_14'] < adx_thresh: score += 1; reasons.append("✅ Low ADX")
         if last_bar['range_ratio'] < range_thresh: score += 1; reasons.append("✅ Tight Range")
         if half_life < hl_thresh: score += 1; reasons.append("✅ Low Half-Life")
-        if btc_corr < 0.6: score += 1; reasons.append("✅ Low Correlation")
+        if btc_corr < corr_thresh: score += 1; reasons.append(f"✅ Corr: {btc_corr:.2f}")
 
         c_s1, c_s2 = st.columns([1, 2])
         with c_s1:
