@@ -130,19 +130,43 @@ st.markdown("This tool estimates how much time is left before a **breakout** bas
 
 with st.sidebar:
     st.header("Settings")
-    symbol = st.text_input("Ticker", "BTC/USDT")
-    tf = st.selectbox("Timeframe", ["4h", "1d", "1h"])
+    symbol = st.text_input(
+        "Ticker", 
+        "BTC/USDT", 
+        help="Enter the trading pair symbol from Binance (e.g., BTC/USDT or ETH/USDT)."
+    )
+    tf = st.selectbox(
+        "Timeframe", 
+        ["4h", "1d", "1h"],
+        help="Choose the candle interval. Higher timeframes (1d, 4h) provide more reliable trend signals."
+    )
     
     st.divider()
     st.caption("Flat Identification Criteria")
     
-    ma_len = st.number_input("MA Period", 100, 300, 100)
-    slope_thresh = st.number_input("Slope Threshold (%)", 0.01, 0.1, 0.05, step=0.01)
-    adx_thresh = st.number_input("ADX Threshold", 15, 60, 45)
-    range_thresh = st.number_input("Range Ratio", 4.0, 15.0, 8.0)
+    ma_len = st.number_input(
+        "MA Period", 100, 300, 100,
+        help="Moving Average period used as the trend baseline. Longer periods represent a more significant trend."
+    )
+    slope_thresh = st.number_input(
+        "Slope Threshold (%)", 0.01, 0.1, 0.05, step=0.01,
+        help="The maximum allowable angle (slope) of the MA to consider the market 'flat'. Lower values mean a stricter definition of a sideways market."
+    )
+    adx_thresh = st.number_input(
+        "ADX Threshold", 15, 60, 45,
+        help="Average Directional Index. Values below this threshold suggest a weak trend, indicating a consolidation phase."
+    )
+    range_thresh = st.number_input(
+        "Range Ratio", 4.0, 15.0, 8.0,
+        help="The ratio of the price range (High-Low) to the ATR. A low ratio indicates that the price is tightly compressed."
+    )
     
     st.divider()
-    hl_thresh = st.number_input("Half-Life Threshold", 10, 100, 30)
+    hl_thresh = st.number_input(
+        "Half-Life Threshold", 10, 100, 30,
+        help="Statistically measures the speed of mean reversion. Lower values indicate a stronger tendency for the price to return to its average."
+    )
+
 
 if st.button("Run Historical Analysis", type="primary"):
     with st.spinner('Scanning 1000 candles of history...'):
